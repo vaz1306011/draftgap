@@ -87,6 +87,15 @@ async fn get_lcu_response(
     state: &tauri::State<'_, AppState>,
     path: &str,
 ) -> Result<serde_json::Value, String> {
+    lcu_request(state, reqwest::Method::GET, path, None).await
+}
+
+async fn lcu_request(
+    state: &tauri::State<'_, AppState>,
+    method: reqwest::Method,
+    path: &str,
+    body: Option<Value>,
+) -> Result<serde_json::Value, String> {
     let mut lcu_data_mutex = state.lcu_data.lock().await;
 
     if lcu_data_mutex.is_none() {
@@ -96,12 +105,17 @@ async fn get_lcu_response(
     }
     let lcu_data = lcu_data_mutex.as_ref().unwrap();
 
-    let res = state
+    let mut request = state
         .client
-        .get(format!("https://127.0.0.1:{}/{}", lcu_data.port, path))
-        .basic_auth(&lcu_data.username, Some(&lcu_data.password))
-        .send()
-        .await;
+        .request(
+            method,
+            format!("https://127.0.0.1:{}/{}", lcu_data.port, path),
+        )
+        .basic_auth(&lcu_data.username, Some(&lcu_data.password));
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    let res = request.send().await;
 
     let res = match res {
         Ok(res) => res,
@@ -136,6 +150,10 @@ async fn get_lcu_response(
         return Err(format!("LCU returned {status}: {body}"));
     }
 
+    if body.trim().is_empty() {
+        return Ok(serde_json::Value::Null);
+    }
+
     let json = serde_json::from_str(&body).map_err(|e| {
         format!(
             "Could not parse json: {e}; body={}",
@@ -168,6 +186,21 @@ async fn get_pickable_champion_ids(state: tauri::State<'_, AppState>) -> Result<
     get_lcu_response(&state, "lol-champ-select/v1/pickable-champion-ids").await
 }
 
+#[tauri::command]
+async fn select_champion(
+    state: tauri::State<'_, AppState>,
+    action_id: i64,
+    champion_id: i64,
+) -> Result<Value, String> {
+    lcu_request(
+        &state,
+        reqwest::Method::PATCH,
+        &format!("lol-champ-select/v1/session/actions/{action_id}"),
+        Some(serde_json::json!({ "championId": champion_id })),
+    )
+    .await
+}
+
 fn main() {
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
@@ -189,7 +222,8 @@ fn main() {
             get_champ_select_session,
             get_current_summoner,
             get_grid_champions,
-            get_pickable_champion_ids
+            get_pickable_champion_ids,
+            select_champion
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

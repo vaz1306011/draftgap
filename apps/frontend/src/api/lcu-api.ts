@@ -24,3 +24,7 @@ export async function getGridChampions(): Promise<LolChampSelectGridChampions | 
 export async function getPickableChampionIds(): Promise<number[] | null> {
     return (await invoke("get_pickable_champion_ids")) as number[] | null;
 }
+
+export async function selectChampion(actionId: number, championId: number) {
+    await invoke("select_champion", { actionId, championId });
+}

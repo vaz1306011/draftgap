@@ -12,6 +12,7 @@ import {
     getCurrentSummoner,
     getGridChampions,
     getPickableChampionIds,
+    selectChampion,
 } from "../api/lcu-api";
 import { getRoleFromString, Role } from "@draftgap/core/src/models/Role";
 import { Team } from "@draftgap/core/src/models/Team";
@@ -363,6 +364,29 @@ export const createLolClientContext = () => {
         update();
     };
 
+    // Hovers the champion in the game client for the local player's current pick
+    const selectChampionInClient = async (championKey: string) => {
+        if (clientState() !== ClientState.InChampSelect) return;
+
+        const cellId = champSelectSession.localPlayerCellId;
+        const action = champSelectSession.actions
+            .flat()
+            .find(
+                (a) =>
+                    a.actorCellId === cellId &&
+                    a.type === "pick" &&
+                    a.isInProgress &&
+                    !a.completed,
+            );
+        if (!action) return;
+
+        try {
+            await selectChampion(action.id, Number(championKey));
+        } catch (e) {
+            console.error("Failed to select champion in client", e);
+        }
+    };
+
     const stopLolClientIntegration = () => {
         if (integrationTimeout() != null) {
             clearTimeout(integrationTimeout());
@@ -380,6 +404,7 @@ export const createLolClientContext = () => {
         champSelectSession,
         startLolClientIntegration,
         stopLolClientIntegration,
+        selectChampionInClient,
         clientError,
     };
 };

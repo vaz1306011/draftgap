@@ -28,11 +28,13 @@ import { Dialog } from "../common/Dialog";
 import { ChampionDraftAnalysisDialog } from "../dialogs/ChampionDraftAnalysisDialog";
 import { Team } from "@draftgap/core/src/models/Team";
 import { championName } from "../../utils/i18n";
+import { useLolClient } from "../../contexts/LolClientContext";
 
 export default function DraftTable() {
     const { dataset } = useDataset();
     const { selection, pickChampion, select, bans, ownedChampions } =
         useDraft();
+    const { champSelectSession, selectChampionInClient } = useLolClient();
     const {
         search,
         roleFilter,
@@ -367,6 +369,15 @@ export default function DraftTable() {
             row.original.championKey,
             row.original.role,
         );
+
+        // Mirror the pick in the game client if this is the local player's slot
+        if (
+            selection.team === "ally" &&
+            champSelectSession.myTeam[selection.index]?.cellId ===
+                champSelectSession.localPlayerCellId
+        ) {
+            selectChampionInClient(row.original.championKey);
+        }
 
         document.getElementById("draftTableSearch")?.focus();
     }
