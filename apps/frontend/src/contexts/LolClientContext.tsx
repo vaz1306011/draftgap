@@ -428,7 +428,6 @@ export const createLolClientContext = () => {
     // Changes the pre-picked champion in the game client for the local
     // player's pick, unless it is already locked in
     const selectChampionInClient = async (championKey: string) => {
-        console.log("[sync] clientState", clientState());
         if (clientState() !== ClientState.InChampSelect) return;
 
         const cellId = champSelectSession.localPlayerCellId;
@@ -440,12 +439,6 @@ export const createLolClientContext = () => {
                     a.type === "pick" &&
                     !a.completed,
             );
-        console.log(
-            "[sync] action",
-            action?.id,
-            "of",
-            champSelectSession.actions.flat().length,
-        );
         if (!action) return;
 
         try {
