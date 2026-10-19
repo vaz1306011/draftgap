@@ -1,3 +1,4 @@
+import { loadChampionNames } from "./utils/championNames";
 import { Icon } from "solid-heroicons";
 import {
     Component,
@@ -50,6 +51,10 @@ const App: Component = () => {
     const { startLolClientIntegration, stopLolClientIntegration } =
         useLolClient();
     const { isDesktop } = useMedia();
+
+    createEffect(() => {
+        loadChampionNames(config.language);
+    });
 
     createEffect(() => {
         if (config.disableLeagueClientIntegration) {

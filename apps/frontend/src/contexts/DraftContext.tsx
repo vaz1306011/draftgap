@@ -30,7 +30,7 @@ export function createDraftContext() {
     const { dataset } = useDataset();
     const { setCurrentDraftView, currentDraftView } = useDraftView();
     const { isMobileLayout } = useMedia();
-    const { resetDraftFilters } = useDraftFilters();
+    const { resetDraftFilters, setRoleFilter } = useDraftFilters();
 
     const [allyTeam, setAllyTeam] = createStore<TeamPicks>([
         { championKey: undefined, role: undefined, hoverKey: undefined },
@@ -46,6 +46,11 @@ export function createDraftContext() {
         { championKey: undefined, role: undefined, hoverKey: undefined },
         { championKey: undefined, role: undefined, hoverKey: undefined },
     ]);
+
+    // Roles assigned by the game client for each ally slot
+    const [allyAssignedRoles, setAllyAssignedRoles] = createSignal<
+        (Role | undefined)[]
+    >([]);
 
     const [bans, setBans] = createStore<string[]>([]);
     // If empty, assume all champions are owned
@@ -233,13 +238,6 @@ export function createDraftContext() {
         index?: number,
         resetFilters = true,
     ) => {
-        if (team !== undefined && index !== undefined) {
-            const teamPicks = team === "ally" ? allyTeam : opponentTeam;
-            if (teamPicks[index].championKey !== undefined) {
-                return;
-            }
-        }
-
         if (index === undefined && team !== undefined) {
             index = getNextPick(team!);
         }
@@ -250,11 +248,23 @@ export function createDraftContext() {
             resetDraftFilters();
         }
 
+        // Filter by the role the client assigned to the selected player
+        const assignedRole =
+            team === "ally" ? allyAssignedRoles()[index ?? 0] : undefined;
+        if (assignedRole !== undefined) {
+            setRoleFilter(assignedRole);
+        }
+
         setCurrentDraftView({
             type: "draft",
             subType: (draftFinished() ? "draft" : team) ?? "draft",
         });
     };
+
+    const selectedAssignedRole = () =>
+        selection.team === "ally"
+            ? allyAssignedRoles()[selection.index]
+            : undefined;
 
     const draftFinished = () =>
         [...allyTeam, ...opponentTeam].every(
@@ -276,6 +286,9 @@ export function createDraftContext() {
         selection,
         select,
         draftFinished,
+        allyAssignedRoles,
+        setAllyAssignedRoles,
+        selectedAssignedRole,
     };
 }
 

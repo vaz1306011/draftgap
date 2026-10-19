@@ -20,11 +20,12 @@ import { useDraftFilters } from "./DraftFiltersContext";
 
 export function createDraftAnalysisContext() {
     const { config } = useUser();
-    const { allyTeam, opponentTeam, selection } = useDraft();
+    const { allyTeam, opponentTeam, selection, selectedAssignedRole } =
+        useDraft();
     const { roleFilter, setRoleFilter } = useDraftFilters();
     const { isLoaded, dataset, dataset30Days } = useDataset();
 
-    const [analyzeHovers, setAnalyzeHovers] = createSignal(false);
+    const [analyzeHovers, setAnalyzeHovers] = createSignal(true);
 
     function getTeamCompsForTeam(team: Team) {
         if (!isLoaded()) return [];
@@ -148,7 +149,11 @@ export function createDraftAnalysisContext() {
         if (!selection.team) return;
 
         const filledRoles = getFilledRoles(selection.team!);
-        if (roleFilter() !== undefined && filledRoles.has(roleFilter())) {
+        if (
+            roleFilter() !== undefined &&
+            roleFilter() !== selectedAssignedRole() &&
+            filledRoles.has(roleFilter())
+        ) {
             setRoleFilter(undefined);
         }
     });

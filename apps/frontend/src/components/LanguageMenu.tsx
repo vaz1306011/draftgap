@@ -49,6 +49,22 @@ export const LanguageDropdownMenu: Component = () => {
                     >
                         <span>Simplified Chinese</span>
                     </DropdownMenuItem>
+                    <DropdownMenuItem
+                        onSelect={() => setConfig({ language: "zh_TW" })}
+                        class={cn(
+                            config.language === "zh_TW" && "bg-neutral-700",
+                        )}
+                    >
+                        <span>繁體中文</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                        onSelect={() => setConfig({ language: "ja_JP" })}
+                        class={cn(
+                            config.language === "ja_JP" && "bg-neutral-700",
+                        )}
+                    >
+                        <span>日本語</span>
+                    </DropdownMenuItem>
                 </DropdownMenuGroup>
                 <DropdownMenuSeparator />
                 <DropdownMenuLabel class="text-neutral-500 text-sm">

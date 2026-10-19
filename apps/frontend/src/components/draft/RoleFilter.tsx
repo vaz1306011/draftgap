@@ -7,7 +7,7 @@ import { useDraftFilters } from "../../contexts/DraftFiltersContext";
 import { cn } from "../../utils/style";
 
 export function RoleFilter(props: ComponentProps<"span">) {
-    const { selection, draftFinished } = useDraft();
+    const { selection, draftFinished, selectedAssignedRole } = useDraft();
     const { roleFilter, setRoleFilter } = useDraftFilters();
     const { getFilledRoles } = useDraftAnalysis();
 
@@ -35,7 +35,11 @@ export function RoleFilter(props: ComponentProps<"span">) {
                                 ? setRoleFilter(undefined)
                                 : setRoleFilter(role)
                         }
-                        disabled={filledRoles().has(role) || draftFinished()}
+                        disabled={
+                            (filledRoles().has(role) &&
+                                role !== selectedAssignedRole()) ||
+                            draftFinished()
+                        }
                     >
                         <RoleIcon role={role} class="h-7" />
                     </button>

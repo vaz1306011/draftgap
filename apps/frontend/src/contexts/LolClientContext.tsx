@@ -25,6 +25,7 @@ import {
     createImportFavouritePicksSuccessToast,
     createImportFavouritePicksToast,
 } from "../utils/toast";
+import { useDraftFilters } from "./DraftFiltersContext";
 import { useDraft } from "./DraftContext";
 import { useMedia } from "../hooks/useMedia";
 import { useUser } from "./UserContext";
@@ -89,7 +90,11 @@ export const createLolClientContext = () => {
     const {
         pickChampion,
         hoverChampion,
+        resetChampion,
         select,
+        selection,
+        setAllyAssignedRoles,
+        allyAssignedRoles,
         resetAll,
         allyTeam,
         opponentTeam,
@@ -97,6 +102,7 @@ export const createLolClientContext = () => {
         setBans,
         setOwnedChampions,
     } = useDraft();
+    const { setRoleFilter } = useDraftFilters();
     const { isFavourite, setFavourite } = useUser();
 
     const [clientState, setClientState] = createSignal<ClientState>(
@@ -139,6 +145,16 @@ export const createLolClientContext = () => {
             .flat()
             .find((a) => a.type === "pick" && !a.completed);
 
+        const localCellId = session.localPlayerCellId;
+        const isLockedIn = session.actions
+            .flat()
+            .some(
+                (a) =>
+                    a.actorCellId === localCellId &&
+                    a.type === "pick" &&
+                    a.completed,
+            );
+
         const getRole = (role: string) => {
             return {
                 top: Role.Top,
@@ -160,7 +176,12 @@ export const createLolClientContext = () => {
                 ? getRole(selection.assignedPosition)
                 : undefined;
 
-            if (selection.championId) {
+            // The local player's champion only shows up once it is locked in,
+            // so their pre-pick does not affect the other roles' analysis
+            const isUnlockedLocalPlayer =
+                selection.cellId === localCellId && !isLockedIn;
+
+            if (selection.championId && !isUnlockedLocalPlayer) {
                 const championKey = selection.championId.toString();
                 if (teamPicks[index].championKey === championKey) {
                     return false;
@@ -175,6 +196,13 @@ export const createLolClientContext = () => {
 
                 return true;
             } else {
+                if (
+                    isUnlockedLocalPlayer &&
+                    teamPicks[index].championKey !== undefined
+                ) {
+                    resetChampion(team, index);
+                }
+
                 let championKey = undefined;
                 if (
                     selection.championPickIntent &&
@@ -191,6 +219,22 @@ export const createLolClientContext = () => {
         };
 
         batch(() => {
+            // Track assigned roles and follow swaps on the selected slot
+            const previousRoles = allyAssignedRoles();
+            const assignedRoles = session.myTeam.map((p) =>
+                p.assignedPosition ? getRole(p.assignedPosition) : undefined,
+            );
+            setAllyAssignedRoles(assignedRoles);
+            if (selection.team === "ally") {
+                const role = assignedRoles[selection.index];
+                if (
+                    role !== undefined &&
+                    role !== previousRoles[selection.index]
+                ) {
+                    setRoleFilter(role);
+                }
+            }
+
             let draftChanged = firstTime;
             for (let i = 0; i < session.myTeam.length; i++) {
                 const selection = session.myTeam[i];
@@ -219,8 +263,29 @@ export const createLolClientContext = () => {
                 setBans(bannedChampions);
             }
 
-            // Set next pick if draft has changed
-            if (nextPick && draftChanged) {
+            // Until the local player locks in, default to their own slot and
+            // never move the selection away from wherever they put it
+            const localIndex = session.myTeam.findIndex(
+                (s) => s.cellId === localCellId,
+            );
+            const previousLocalIndex = champSelectSession.myTeam.findIndex(
+                (s) => s.cellId === champSelectSession.localPlayerCellId,
+            );
+            const followLocalSlot = localIndex !== -1 && !isLockedIn;
+
+            if (followLocalSlot) {
+                if (firstTime) {
+                    select("ally", localIndex, false);
+                } else if (
+                    // Pick order swapped, follow the player to the new slot
+                    localIndex !== previousLocalIndex &&
+                    selection.team === "ally" &&
+                    selection.index === previousLocalIndex
+                ) {
+                    select("ally", localIndex, false);
+                }
+            } else if (nextPick && draftChanged) {
+                // Set next pick if draft has changed
                 const nextPickTeamSelection = nextPick.isAllyAction
                     ? session.myTeam
                     : session.theirTeam;
@@ -231,11 +296,7 @@ export const createLolClientContext = () => {
                 // Only update next pick if ally
                 // Irritating to have it update when opponent picks
                 if (nextPick.isAllyAction) {
-                    select(
-                        nextPick.isAllyAction ? "ally" : "opponent",
-                        index,
-                        false,
-                    );
+                    select("ally", index, false);
                 }
             }
 
@@ -364,8 +425,10 @@ export const createLolClientContext = () => {
         update();
     };
 
-    // Hovers the champion in the game client for the local player's current pick
+    // Changes the pre-picked champion in the game client for the local
+    // player's pick, unless it is already locked in
     const selectChampionInClient = async (championKey: string) => {
+        console.log("[sync] clientState", clientState());
         if (clientState() !== ClientState.InChampSelect) return;
 
         const cellId = champSelectSession.localPlayerCellId;
@@ -375,9 +438,14 @@ export const createLolClientContext = () => {
                 (a) =>
                     a.actorCellId === cellId &&
                     a.type === "pick" &&
-                    a.isInProgress &&
                     !a.completed,
             );
+        console.log(
+            "[sync] action",
+            action?.id,
+            "of",
+            champSelectSession.actions.flat().length,
+        );
         if (!action) return;
 
         try {

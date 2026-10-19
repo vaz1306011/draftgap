@@ -363,20 +363,33 @@ export default function DraftTable() {
             return;
         }
 
-        pickChampion(
-            selection.team,
-            selection.index,
-            row.original.championKey,
-            row.original.role,
-        );
+        // pickChampion advances the selection, so read the slot beforehand
+        const { team, index } = selection;
 
-        // Mirror the pick in the game client if this is the local player's slot
-        if (
-            selection.team === "ally" &&
-            champSelectSession.myTeam[selection.index]?.cellId ===
-                champSelectSession.localPlayerCellId
-        ) {
+        const localCellId = champSelectSession.localPlayerCellId;
+        const isLocalPlayerSlot =
+            team === "ally" &&
+            champSelectSession.myTeam[index]?.cellId === localCellId;
+        const isLockedIn = champSelectSession.actions
+            .flat()
+            .some(
+                (a) =>
+                    a.actorCellId === localCellId &&
+                    a.type === "pick" &&
+                    a.completed,
+            );
+
+        if (isLocalPlayerSlot && !isLockedIn) {
+            // Only pre-pick in the game client, the slot stays empty until
+            // lock-in so it doesn't affect the other roles' analysis
             selectChampionInClient(row.original.championKey);
+        } else {
+            pickChampion(
+                team,
+                index,
+                row.original.championKey,
+                row.original.role,
+            );
         }
 
         document.getElementById("draftTableSearch")?.focus();
