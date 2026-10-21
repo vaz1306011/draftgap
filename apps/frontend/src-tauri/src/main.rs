@@ -22,7 +22,42 @@ struct LcuData {
     username: String,
 }
 
+#[cfg(target_os = "windows")]
+mod win {
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetSystemMetrics(index: i32) -> i32;
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetErrorMode(mode: u32) -> u32;
+    }
+
+    const SM_SHUTTINGDOWN: i32 = 0x2000;
+    const SEM_FAILCRITICALERRORS: u32 = 0x0001;
+    const SEM_NOGPFAULTERRORBOX: u32 = 0x0002;
+
+    /// True while the session is logging off / shutting down.
+    pub fn is_shutting_down() -> bool {
+        unsafe { GetSystemMetrics(SM_SHUTTINGDOWN) != 0 }
+    }
+
+    /// Inherited by child processes, so they can't pop up error dialogs
+    /// (e.g. 0xc0000142) if they fail to initialize.
+    pub fn suppress_error_dialogs() {
+        unsafe {
+            SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+        }
+    }
+}
+
 fn get_league_lcu_data() -> Result<LcuData, String> {
+    #[cfg(target_os = "windows")]
+    if win::is_shutting_down() {
+        return Err("System is shutting down".to_owned());
+    }
+
     #[cfg(not(target_os = "windows"))]
     let output = std::process::Command::new("sh")
         .arg("-lc")
@@ -202,6 +237,9 @@ async fn select_champion(
 }
 
 fn main() {
+    #[cfg(target_os = "windows")]
+    win::suppress_error_dialogs();
+
     let client = Client::builder()
         .danger_accept_invalid_certs(true)
         .build()
