@@ -1,7 +1,6 @@
 import {
     JSXElement,
     createContext,
-    createEffect,
     createMemo,
     createSignal,
     useContext,
@@ -16,13 +15,10 @@ import predictRoles, {
     getTeamComps,
 } from "@draftgap/core/src/role/role-predictor";
 import { useDataset } from "./DatasetContext";
-import { useDraftFilters } from "./DraftFiltersContext";
 
 export function createDraftAnalysisContext() {
     const { config } = useUser();
-    const { allyTeam, opponentTeam, selection, selectedAssignedRole } =
-        useDraft();
-    const { roleFilter, setRoleFilter } = useDraftFilters();
+    const { allyTeam, opponentTeam, selection } = useDraft();
     const { isLoaded, dataset, dataset30Days } = useDataset();
 
     const [analyzeHovers, setAnalyzeHovers] = createSignal(true);
@@ -144,19 +140,6 @@ export function createDraftAnalysisContext() {
 
         return new Set(teamComp.keys());
     };
-
-    createEffect(() => {
-        if (!selection.team) return;
-
-        const filledRoles = getFilledRoles(selection.team!);
-        if (
-            roleFilter() !== undefined &&
-            roleFilter() !== selectedAssignedRole() &&
-            filledRoles.has(roleFilter())
-        ) {
-            setRoleFilter(undefined);
-        }
-    });
 
     const [analysisPick, _setAnalysisPick] = createSignal<{
         team: Team;

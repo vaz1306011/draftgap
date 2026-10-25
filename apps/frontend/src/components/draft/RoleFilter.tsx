@@ -1,6 +1,6 @@
 import { ComponentProps, For } from "solid-js";
 import { useDraft } from "../../contexts/DraftContext";
-import { ROLES } from "@draftgap/core/src/models/Role";
+import { Role, ROLES } from "@draftgap/core/src/models/Role";
 import { RoleIcon } from "../icons/roles/RoleIcon";
 import { useDraftAnalysis } from "../../contexts/DraftAnalysisContext";
 import { useDraftSuggestions } from "../../contexts/DraftSuggestionsContext";
@@ -16,6 +16,10 @@ export function RoleFilter(props: ComponentProps<"span">) {
     const filledRoles = () =>
         (selection.team && getFilledRoles(selection.team)) ?? new Set();
 
+    const isUnavailable = (role: Role) =>
+        (filledRoles().has(role) && role !== selectedAssignedRole()) ||
+        (suggestedRoles() !== undefined && !suggestedRoles()!.has(role));
+
     return (
         <span
             {...props}
@@ -30,6 +34,7 @@ export function RoleFilter(props: ComponentProps<"span">) {
                             "rounded-r-md": i() === ROLES.length - 1,
                             "rounded-l-md": i() === 0,
                             "-ml-px": i() !== 0,
+                            "text-neutral-600": isUnavailable(role),
                             "text-white bg-neutral-700!": roleFilter() === role,
                         }}
                         onClick={() =>
@@ -37,13 +42,7 @@ export function RoleFilter(props: ComponentProps<"span">) {
                                 ? setRoleFilter(undefined)
                                 : setRoleFilter(role)
                         }
-                        disabled={
-                            (filledRoles().has(role) &&
-                                role !== selectedAssignedRole()) ||
-                            (suggestedRoles() !== undefined &&
-                                !suggestedRoles()!.has(role)) ||
-                            draftFinished()
-                        }
+                        disabled={draftFinished()}
                     >
                         <RoleIcon role={role} class="h-7" />
                     </button>
