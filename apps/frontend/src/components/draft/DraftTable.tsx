@@ -354,7 +354,30 @@ export default function DraftTable() {
         },
         onSortingChange: setSorting,
         getCoreRowModel: getCoreRowModel(),
-        getSortedRowModel: getSortedRowModel(),
+        getSortedRowModel: (table) => {
+            const getSorted = getSortedRowModel<Suggestion>()(table);
+            return () => {
+                const model = getSorted();
+                // Without a column sort the pre-sorted data order is kept as is.
+                if (!config.showFavouritesAtTop || sorting().length === 0) {
+                    return model;
+                }
+
+                // Keep favourites on top while preserving the column sort order.
+                const isFav = (row: Row<Suggestion>) =>
+                    isFavourite(
+                        row.original.championKey,
+                        row.original.role,
+                    );
+                return {
+                    ...model,
+                    rows: [
+                        ...model.rows.filter(isFav),
+                        ...model.rows.filter((row) => !isFav(row)),
+                    ],
+                };
+            };
+        },
     });
 
     function pick(row: Row<Suggestion>) {
