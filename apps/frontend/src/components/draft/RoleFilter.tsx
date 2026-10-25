@@ -3,6 +3,7 @@ import { useDraft } from "../../contexts/DraftContext";
 import { ROLES } from "@draftgap/core/src/models/Role";
 import { RoleIcon } from "../icons/roles/RoleIcon";
 import { useDraftAnalysis } from "../../contexts/DraftAnalysisContext";
+import { useDraftSuggestions } from "../../contexts/DraftSuggestionsContext";
 import { useDraftFilters } from "../../contexts/DraftFiltersContext";
 import { cn } from "../../utils/style";
 
@@ -10,6 +11,7 @@ export function RoleFilter(props: ComponentProps<"span">) {
     const { selection, draftFinished, selectedAssignedRole } = useDraft();
     const { roleFilter, setRoleFilter } = useDraftFilters();
     const { getFilledRoles } = useDraftAnalysis();
+    const { suggestedRoles } = useDraftSuggestions();
 
     const filledRoles = () =>
         (selection.team && getFilledRoles(selection.team)) ?? new Set();
@@ -38,6 +40,8 @@ export function RoleFilter(props: ComponentProps<"span">) {
                         disabled={
                             (filledRoles().has(role) &&
                                 role !== selectedAssignedRole()) ||
+                            (suggestedRoles() !== undefined &&
+                                !suggestedRoles()!.has(role)) ||
                             draftFinished()
                         }
                     >

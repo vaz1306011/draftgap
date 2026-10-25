@@ -1,9 +1,19 @@
-import { JSXElement, createContext, createMemo, useContext } from "solid-js";
+import {
+    JSXElement,
+    createContext,
+    createEffect,
+    createMemo,
+    useContext,
+} from "solid-js";
 import { getSuggestions } from "@draftgap/core/src/draft/suggestions";
 import { useDraftAnalysis } from "./DraftAnalysisContext";
 import { useDataset } from "./DatasetContext";
+import { useDraft } from "./DraftContext";
+import { useDraftFilters } from "./DraftFiltersContext";
 
 export function createDraftSuggestionsContext() {
+    const { selection } = useDraft();
+    const { roleFilter, setRoleFilter } = useDraftFilters();
     const { isLoaded, dataset, dataset30Days } = useDataset();
     const { draftAnalysisConfig, allyTeamComp, opponentTeamComp } =
         useDraftAnalysis();
@@ -32,7 +42,30 @@ export function createDraftSuggestionsContext() {
         );
     });
 
-    return { allySuggestions, opponentSuggestions };
+    // Roles that still have suggestions for the selected team. Undefined while
+    // there is nothing to judge by (no team selected or no data yet).
+    const suggestedRoles = createMemo(() => {
+        if (!selection.team) return undefined;
+
+        const suggestions =
+            selection.team === "opponent"
+                ? opponentSuggestions()
+                : allySuggestions();
+        if (suggestions.length === 0) return undefined;
+
+        return new Set(suggestions.map((s) => s.role));
+    });
+
+    // Never leave the table empty because of a role that has no data
+    createEffect(() => {
+        const roles = suggestedRoles();
+        const role = roleFilter();
+        if (roles && role !== undefined && !roles.has(role)) {
+            setRoleFilter(undefined);
+        }
+    });
+
+    return { allySuggestions, opponentSuggestions, suggestedRoles };
 }
 
 export const DraftSuggestionsContext =
