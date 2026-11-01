@@ -18,7 +18,8 @@ import { useDataset } from "./DatasetContext";
 
 export function createDraftAnalysisContext() {
     const { config } = useUser();
-    const { allyTeam, opponentTeam, selection } = useDraft();
+    const { allyTeam, opponentTeam, selection, selectedAssignedRole } =
+        useDraft();
     const { isLoaded, dataset, dataset30Days } = useDataset();
 
     const [analyzeHovers, setAnalyzeHovers] = createSignal(true);
@@ -37,7 +38,15 @@ export function createDraftAnalysisContext() {
                 ...dataset()!.championData[pick.championKey || pick.hoverKey!],
                 role: pick.role,
             }));
-        return getTeamComps(championData);
+
+        // The selected slot's assigned role must stay open for its suggestions
+        const selectedPick =
+            selection.team === team ? picks[selection.index] : undefined;
+        const reservedRole =
+            selectedPick && !selectedPick.championKey
+                ? selectedAssignedRole()
+                : undefined;
+        return getTeamComps(championData, reservedRole);
     }
 
     const allyTeamComps = createMemo(() => getTeamCompsForTeam("ally"));

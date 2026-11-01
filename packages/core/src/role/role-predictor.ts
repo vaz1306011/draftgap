@@ -1,17 +1,31 @@
 import { Role, ROLES } from "../models/Role";
 import { ChampionData } from "../models/dataset/ChampionData";
 
-export function getTeamComps(champions: (ChampionData & { role?: Role })[]) {
+export function getTeamComps(
+    champions: (ChampionData & { role?: Role })[],
+    reservedRole?: Role,
+) {
     const existingTeam = new Map(
         champions
             .filter((c) => c.role !== undefined)
             .map((c) => [c.role!, c.key]),
     );
 
-    return getTeamCompsRecursive(
+    // Keep the role free for a pick that is not made yet, so the predicted
+    // roles of the other champions don't occupy it.
+    const reserved =
+        reservedRole !== undefined && !existingTeam.has(reservedRole);
+    if (reserved) existingTeam.set(reservedRole, "");
+
+    const teamComps = getTeamCompsRecursive(
         [existingTeam, 1],
         champions.filter((c) => c.role === undefined),
     ).sort(([, a], [, b]) => b - a);
+
+    if (reserved) {
+        for (const [teamComp] of teamComps) teamComp.delete(reservedRole);
+    }
+    return teamComps;
 }
 
 function getTeamCompsRecursive(
