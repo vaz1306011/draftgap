@@ -28,6 +28,7 @@ import { Dialog } from "../common/Dialog";
 import { ChampionDraftAnalysisDialog } from "../dialogs/ChampionDraftAnalysisDialog";
 import { Team } from "@draftgap/core/src/models/Team";
 import { championName } from "../../utils/i18n";
+import { matchesSearch } from "../../utils/kana";
 import { useLolClient } from "../../contexts/LolClientContext";
 
 export default function DraftTable() {
@@ -61,20 +62,11 @@ export default function DraftTable() {
         }
 
         if (search()) {
-            const str = search()
-                .replaceAll(/[^a-zA-Z0-9\u4e00-\u9fff]/g, "")
-                .toLowerCase();
             filtered = filtered.filter((s) => {
                 const champion = dataset()!.championData[s.championKey];
                 return (
-                    champion.name
-                        .replaceAll(/[^a-zA-Z0-9\u4e00-\u9fff]/g, "")
-                        .toLowerCase()
-                        .includes(str) ||
-                    championName(champion, config)
-                        .replaceAll(/[^a-zA-Z0-9\u4e00-\u9fff]/g, "")
-                        .toLowerCase()
-                        .includes(str)
+                    matchesSearch(champion.name, search()) ||
+                    matchesSearch(championName(champion, config), search())
                 );
             });
         }
