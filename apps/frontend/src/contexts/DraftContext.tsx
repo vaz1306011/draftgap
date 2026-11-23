@@ -1,6 +1,7 @@
 import {
     batch,
     createContext,
+    createMemo,
     createSignal,
     JSXElement,
     useContext,
@@ -48,9 +49,15 @@ export function createDraftContext() {
     ]);
 
     // Roles assigned by the game client for each ally slot
+    // The client pushes a fresh array on every update, so only notify when the
+    // roles actually changed, otherwise all suggestions get recomputed and the
+    // draft table re-renders constantly.
     const [allyAssignedRoles, setAllyAssignedRoles] = createSignal<
         (Role | undefined)[]
-    >([]);
+    >([], {
+        equals: (prev, next) =>
+            prev.length === next.length && prev.every((r, i) => r === next[i]),
+    });
 
     const [bans, setBans] = createStore<string[]>([]);
     // If empty, assume all champions are owned
@@ -261,10 +268,11 @@ export function createDraftContext() {
         });
     };
 
-    const selectedAssignedRole = () =>
+    const selectedAssignedRole = createMemo(() =>
         selection.team === "ally"
             ? allyAssignedRoles()[selection.index]
-            : undefined;
+            : undefined,
+    );
 
     const draftFinished = () =>
         [...allyTeam, ...opponentTeam].every(
