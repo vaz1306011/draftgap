@@ -26,7 +26,7 @@ import {
     createImportFavouritePicksToast,
 } from "../utils/toast";
 import { useDraftFilters } from "./DraftFiltersContext";
-import { useDraft } from "./DraftContext";
+import { getPickedChampionKey, useDraft } from "./DraftContext";
 import { useMedia } from "../hooks/useMedia";
 import { useUser } from "./UserContext";
 import { LolalyticsRole } from "../../../dataset/src/lolalytics/roles";
@@ -98,9 +98,9 @@ export const createLolClientContext = () => {
         resetAll,
         allyTeam,
         opponentTeam,
-        bans,
-        setBans,
+        setTeamBans,
         setOwnedChampions,
+        selectNextPick,
     } = useDraft();
     const { setRoleFilter } = useDraftFilters();
     const { isFavourite, setFavourite } = useUser();
@@ -137,6 +137,8 @@ export const createLolClientContext = () => {
             privacy: "",
         });
 
+    let lastSelectedBanActionId: number | undefined;
+
     const updateChampSelectSession = (
         session: LolChampSelectChampSelectSession,
         firstTime = false,
@@ -144,6 +146,15 @@ export const createLolClientContext = () => {
         const nextPick = session.actions
             .flat()
             .find((a) => a.type === "pick" && !a.completed);
+        const allyBansInProgress = session.actions
+            .flat()
+            .filter(
+                (a) => a.type === "ban" && a.isInProgress && a.isAllyAction,
+            );
+        const currentBan =
+            allyBansInProgress.find(
+                (a) => a.actorCellId === session.localPlayerCellId,
+            ) ?? allyBansInProgress[0];
 
         const localCellId = session.localPlayerCellId;
         const isLockedIn = session.actions
@@ -183,7 +194,7 @@ export const createLolClientContext = () => {
 
             if (selection.championId && !isUnlockedLocalPlayer) {
                 const championKey = selection.championId.toString();
-                if (teamPicks[index].championKey === championKey) {
+                if (getPickedChampionKey(teamPicks[index]) === championKey) {
                     return false;
                 }
                 const resetFilters =
@@ -198,7 +209,7 @@ export const createLolClientContext = () => {
             } else {
                 if (
                     isUnlockedLocalPlayer &&
-                    teamPicks[index].championKey !== undefined
+                    getPickedChampionKey(teamPicks[index]) !== undefined
                 ) {
                     resetChampion(team, index);
                 }
@@ -210,7 +221,9 @@ export const createLolClientContext = () => {
                 ) {
                     championKey = selection.championPickIntent.toString();
                 }
-                if (teamPicks[index].hoverKey !== championKey) {
+                const pick = teamPicks[index];
+                const hoverKey = pick.hover ? pick.championKey : undefined;
+                if (hoverKey !== championKey) {
                     hoverChampion(team, index, championKey, role);
                 }
             }
@@ -225,7 +238,7 @@ export const createLolClientContext = () => {
                 p.assignedPosition ? getRole(p.assignedPosition) : undefined,
             );
             setAllyAssignedRoles(assignedRoles);
-            if (selection.team === "ally") {
+            if (selection.type === "pick" && selection.team === "ally") {
                 const role = assignedRoles[selection.index];
                 if (
                     role !== undefined &&
@@ -248,19 +261,45 @@ export const createLolClientContext = () => {
             }
 
             // Handle bans
-            const bannedChampions = session.actions
+            // Place each ban in the slot of the player who banned it, like the client does
+            const getBannedChampions = (isAllyAction: boolean) => {
+                const teamSelections = isAllyAction
+                    ? session.myTeam
+                    : session.theirTeam;
+                const banActions = session.actions
+                    .flat()
+                    .filter(
+                        (a) =>
+                            a.type === "ban" && a.isAllyAction === isAllyAction,
+                    );
+                const bans: (string | undefined)[] = [];
+                banActions.forEach((a, actionIndex) => {
+                    if (!a.completed || a.championId <= 0) return;
+                    const playerIndex = teamSelections.findIndex(
+                        (s) => s.cellId === a.actorCellId,
+                    );
+                    const index =
+                        playerIndex !== -1 ? playerIndex : actionIndex;
+                    bans[index] = String(a.championId);
+                });
+                return bans;
+            };
+            setTeamBans("ally", getBannedChampions(true));
+            setTeamBans("opponent", getBannedChampions(false));
+
+            // Move selection to the next pick once all ally bans are done
+            const allyBansRemaining = session.actions
                 .flat()
-                .map((a) =>
-                    a.completed && a.type === "ban"
-                        ? String(a.championId)
-                        : null,
-                )
-                .filter(Boolean) as string[];
-            if (
-                bannedChampions.length !== bans.length ||
-                bannedChampions.some((b, i) => b !== bans[i])
-            ) {
-                setBans(bannedChampions);
+                .some(
+                    (a) => a.type === "ban" && a.isAllyAction && !a.completed,
+                );
+            const allyBansFinished =
+                !currentBan &&
+                !allyBansRemaining &&
+                lastSelectedBanActionId !== undefined;
+            if (allyBansFinished) {
+                lastSelectedBanActionId = undefined;
+                draftChanged = true;
             }
 
             // Until the local player locks in, default to their own slot and
@@ -272,18 +311,38 @@ export const createLolClientContext = () => {
                 (s) => s.cellId === champSelectSession.localPlayerCellId,
             );
             const followLocalSlot = localIndex !== -1 && !isLockedIn;
+            const allBansPlaced =
+                selection.type === "ban" &&
+                !session.actions
+                    .flat()
+                    .some((a) => a.type === "ban" && !a.completed);
 
-            if (followLocalSlot) {
-                if (firstTime) {
-                    select("ally", localIndex, false);
+            if (currentBan) {
+                if (currentBan.id !== lastSelectedBanActionId) {
+                    lastSelectedBanActionId = currentBan.id;
+                    select("ally", undefined, {
+                        type: "ban",
+                        resetFilters: false,
+                    });
+                    // Ban suggestions cover every enemy role, so drop the
+                    // filter left over from the assigned pick role
+                    setRoleFilter(undefined);
+                }
+            } else if (followLocalSlot) {
+                if (firstTime || allyBansFinished || allBansPlaced) {
+                    select("ally", localIndex, { resetFilters: false });
                 } else if (
                     // Pick order swapped, follow the player to the new slot
                     localIndex !== previousLocalIndex &&
+                    selection.type === "pick" &&
                     selection.team === "ally" &&
                     selection.index === previousLocalIndex
                 ) {
-                    select("ally", localIndex, false);
+                    select("ally", localIndex, { resetFilters: false });
                 }
+            } else if (allBansPlaced) {
+                // All bans are placed, move from banning to picking
+                selectNextPick("ally", { resetFilters: false });
             } else if (nextPick && draftChanged) {
                 // Set next pick if draft has changed
                 const nextPickTeamSelection = nextPick.isAllyAction
@@ -296,7 +355,7 @@ export const createLolClientContext = () => {
                 // Only update next pick if ally
                 // Irritating to have it update when opponent picks
                 if (nextPick.isAllyAction) {
-                    select("ally", index, false);
+                    select("ally", index, { resetFilters: false });
                 }
             }
 
@@ -385,7 +444,8 @@ export const createLolClientContext = () => {
                 const session = await getChampSelectSession();
                 if (session == null) {
                     if (clientState() !== ClientState.MainMenu) {
-                        setBans([]);
+                        setTeamBans("ally", []);
+                        setTeamBans("opponent", []);
                         setOwnedChampions(new Set<string>());
                     }
 
@@ -397,7 +457,7 @@ export const createLolClientContext = () => {
                             // Disabled: favourites import prompt repeats, likely because WebView2 drops recent localStorage writes.
                             // checkImportFavourites();
                             resetAll();
-                            setBans([]);
+                            lastSelectedBanActionId = undefined;
                         }
 
                         updateChampSelectSession(
@@ -448,6 +508,40 @@ export const createLolClientContext = () => {
         }
     };
 
+    // Picks a champion for a slot. The local player's own pick is only
+    // pre-picked in the game client until lock-in, so the slot stays empty and
+    // doesn't affect the other roles' analysis
+    const pickOrPrePick = (
+        team: Team,
+        index: number,
+        championKey: string,
+        role: Role | undefined,
+    ) => {
+        const localCellId = champSelectSession.localPlayerCellId;
+        const isLocalPlayerSlot =
+            team === "ally" &&
+            champSelectSession.myTeam[index]?.cellId === localCellId;
+        const isLockedIn = champSelectSession.actions
+            .flat()
+            .some(
+                (a) =>
+                    a.actorCellId === localCellId &&
+                    a.type === "pick" &&
+                    a.completed,
+            );
+
+        // The session is kept after champ select ends, so check the state too
+        if (
+            clientState() === ClientState.InChampSelect &&
+            isLocalPlayerSlot &&
+            !isLockedIn
+        ) {
+            selectChampionInClient(championKey);
+        } else {
+            pickChampion(team, index, championKey, role);
+        }
+    };
+
     const stopLolClientIntegration = () => {
         if (integrationTimeout() != null) {
             clearTimeout(integrationTimeout());
@@ -465,7 +559,7 @@ export const createLolClientContext = () => {
         champSelectSession,
         startLolClientIntegration,
         stopLolClientIntegration,
-        selectChampionInClient,
+        pickOrPrePick,
         clientError,
     };
 };

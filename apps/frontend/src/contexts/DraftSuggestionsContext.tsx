@@ -5,15 +5,23 @@ import {
     useContext,
 } from "solid-js";
 import { getSuggestions } from "@draftgap/core/src/draft/suggestions";
+import { getBanSuggestions } from "@draftgap/core/src/draft/bans";
 import { useDraftAnalysis } from "./DraftAnalysisContext";
 import { useDataset } from "./DatasetContext";
-import { useDraft } from "./DraftContext";
+import { getVisibleChampionKey, useDraft } from "./DraftContext";
+import { useDraftFilters } from "./DraftFiltersContext";
 
 export function createDraftSuggestionsContext() {
-    const { selection } = useDraft();
     const { isLoaded, dataset, dataset30Days } = useDataset();
-    const { draftAnalysisConfig, allyTeamComp, opponentTeamComp } =
-        useDraftAnalysis();
+    const {
+        draftAnalysisConfig,
+        allySuggestionTeamComp,
+        opponentSuggestionTeamComp,
+        analyzeHovers,
+        roleFilterTeam,
+    } = useDraftAnalysis();
+    const { selection, allyTeam, opponentTeam, allBans } = useDraft();
+    const { roleFilter } = useDraftFilters();
 
     const allySuggestions = createMemo(() => {
         if (!isLoaded()) return [];
@@ -21,8 +29,8 @@ export function createDraftSuggestionsContext() {
         return getSuggestions(
             dataset()!,
             dataset30Days()!,
-            allyTeamComp(),
-            opponentTeamComp(),
+            allySuggestionTeamComp(),
+            opponentSuggestionTeamComp(),
             draftAnalysisConfig(),
         );
     });
@@ -33,27 +41,53 @@ export function createDraftSuggestionsContext() {
         return getSuggestions(
             dataset()!,
             dataset30Days()!,
-            opponentTeamComp(),
-            allyTeamComp(),
+            opponentSuggestionTeamComp(),
+            allySuggestionTeamComp(),
             draftAnalysisConfig(),
         );
     });
 
-    // Roles that still have suggestions for the selected team. Undefined while
-    // there is nothing to judge by (no team selected or no data yet).
+    // Roles that still have suggestions for the team being picked for, or
+    // banned against. Undefined while there is nothing to judge by (no team
+    // selected or no data yet).
     const suggestedRoles = createMemo(() => {
-        if (!selection.team) return undefined;
+        const team = roleFilterTeam();
+        if (!team) return undefined;
 
         const suggestions =
-            selection.team === "opponent"
-                ? opponentSuggestions()
-                : allySuggestions();
+            team === "opponent" ? opponentSuggestions() : allySuggestions();
         if (suggestions.length === 0) return undefined;
 
         return new Set(suggestions.map((s) => s.role));
     });
 
-    return { allySuggestions, opponentSuggestions, suggestedRoles };
+    const banSuggestions = createMemo(() => {
+        if (!isLoaded() || selection.type !== "ban" || !selection.team) {
+            return [];
+        }
+
+        const unavailable = new Set(allBans());
+        for (const pick of [...allyTeam, ...opponentTeam]) {
+            const key = getVisibleChampionKey(pick, analyzeHovers());
+            if (key) unavailable.add(key);
+        }
+
+        return getBanSuggestions(
+            dataset()!,
+            selection.team === "ally"
+                ? opponentSuggestions()
+                : allySuggestions(),
+            unavailable,
+            roleFilter(),
+        );
+    });
+
+    return {
+        allySuggestions,
+        opponentSuggestions,
+        suggestedRoles,
+        banSuggestions,
+    };
 }
 
 export const DraftSuggestionsContext =

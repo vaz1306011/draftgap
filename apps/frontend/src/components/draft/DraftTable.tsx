@@ -13,7 +13,7 @@ import { Suggestion } from "@draftgap/core/src/draft/suggestions";
 import { Table } from "../common/Table";
 import ChampionCell from "../common/ChampionCell";
 import { RoleCell } from "../common/RoleCell";
-import { batch, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, Show, untrack } from "solid-js";
 import { Icon } from "solid-heroicons";
 import { star } from "solid-heroicons/solid";
 import { star as starOutline } from "solid-heroicons/outline";
@@ -27,22 +27,54 @@ import { informationCircle } from "solid-heroicons/solid-mini";
 import { Dialog } from "../common/Dialog";
 import { ChampionDraftAnalysisDialog } from "../dialogs/ChampionDraftAnalysisDialog";
 import { Team } from "@draftgap/core/src/models/Team";
-import { championName } from "../../utils/i18n";
-import { matchesSearch } from "../../utils/kana";
+import { championMatchesSearch } from "../../utils/search";
 import { useLolClient } from "../../contexts/LolClientContext";
+import { focusSearch } from "./Search";
+import { createTableKeyboardNavigation } from "../../hooks/createTableKeyboardNavigation";
+import { ChampionContextMenuContent } from "./ChampionContextMenu";
+import {
+    PreviewDraftAnalysisProvider,
+    PreviewPick,
+    useDraftAnalysis,
+} from "../../contexts/DraftAnalysisContext";
+
+function PreviewDialogContent(props: { pick: PreviewPick }) {
+    // Champion shown in the dialog; starts at the previewed champion and can
+    // change when clicking matchups/duos inside the dialog.
+    const [shown, setShown] = createSignal<{
+        team: Team;
+        championKey: string;
+    }>(
+        untrack(() => ({
+            team: props.pick.team,
+            championKey: props.pick.championKey,
+        })),
+    );
+
+    return (
+        <ChampionDraftAnalysisDialog
+            team={shown().team}
+            championKey={shown().championKey}
+            openChampionDraftAnalysisModal={(team, championKey) =>
+                setShown({ team, championKey })
+            }
+        />
+    );
+}
 
 export default function DraftTable() {
     const { dataset } = useDataset();
-    const { selection, pickChampion, select, bans, ownedChampions } =
-        useDraft();
-    const { champSelectSession, selectChampionInClient } = useLolClient();
     const {
-        search,
-        roleFilter,
-        setRoleFilter,
-        favouriteFilter,
-        setFavouriteFilter,
-    } = useDraftFilters();
+        selection,
+        selectedChampionKey,
+        select,
+        allBans,
+        ownedChampions,
+    } = useDraft();
+    const { allyTeamComp, opponentTeamComp } = useDraftAnalysis();
+    const { pickOrPrePick } = useLolClient();
+    const { search, roleFilter, favouriteFilter, setFavouriteFilter } =
+        useDraftFilters();
     const { allySuggestions, opponentSuggestions } = useDraftSuggestions();
     const { isFavourite, setFavourite, config } = useUser();
 
@@ -62,13 +94,13 @@ export default function DraftTable() {
         }
 
         if (search()) {
-            filtered = filtered.filter((s) => {
-                const champion = dataset()!.championData[s.championKey];
-                return (
-                    matchesSearch(champion.name, search()) ||
-                    matchesSearch(championName(champion, config), search())
-                );
-            });
+            filtered = filtered.filter((s) =>
+                championMatchesSearch(
+                    dataset()!.championData[s.championKey],
+                    search(),
+                    config,
+                ),
+            );
         }
 
         if (roleFilter() !== undefined) {
@@ -97,11 +129,11 @@ export default function DraftTable() {
         }
 
         if (config.banPlacement === "hidden") {
-            filtered = filtered.filter((s) => !bans.includes(s.championKey));
+            filtered = filtered.filter((s) => !allBans().has(s.championKey));
         } else if (config.banPlacement === "bottom") {
             filtered = [...filtered].sort((a, b) => {
-                const aBanned = bans.includes(a.championKey);
-                const bBanned = bans.includes(b.championKey);
+                const aBanned = allBans().has(a.championKey);
+                const bBanned = allBans().has(b.championKey);
                 if (aBanned && !bBanned) {
                     return 1;
                 } else if (!aBanned && bBanned) {
@@ -131,55 +163,34 @@ export default function DraftTable() {
         return filtered;
     };
 
-    const [analysisPick, _setAnalysisPick] = createSignal<{
-        team: Team;
-        championKey: string;
-    }>();
-    const [showAnalysisPick, setShowAnalysisPick] = createSignal(false);
-    const [savedRoleFilter, setSavedRoleFilter] = createSignal<Role>();
+    // Role the champion in the selected slot is currently played in, so only
+    // that row is highlighted instead of every role of the champion.
+    const selectedChampionRole = () => {
+        const key = selectedChampionKey();
+        if (!key) return undefined;
+        const comp =
+            selection.team === "opponent" ? opponentTeamComp() : allyTeamComp();
+        return [...comp.entries()].find(([, k]) => k === key)?.[0];
+    };
 
-    function setAnalysisPick(
-        pick:
-            | { team: Team; championKey: string; role: Role | undefined }
-            | undefined,
-    ) {
-        batch(() => {
-            if (!pick) {
-                pickChampion(
-                    selection.team!,
-                    selection.index,
-                    undefined,
-                    undefined,
-                    {
-                        updateSelection: false,
-                        resetFilters: false,
-                        reportEvent: false,
-                        updateView: false,
-                    },
-                );
-                setRoleFilter(savedRoleFilter());
-                setSavedRoleFilter(undefined);
-                setShowAnalysisPick(false);
-                return;
-            }
-            if (pick.role !== undefined) {
-                setSavedRoleFilter(roleFilter());
-                pickChampion(
-                    selection.team!,
-                    selection.index,
-                    pick.championKey,
-                    pick.role,
-                    {
-                        updateSelection: false,
-                        resetFilters: false,
-                        reportEvent: false,
-                        updateView: false,
-                    },
-                );
-            }
-            _setAnalysisPick(pick);
-            setShowAnalysisPick(true);
+    const isSelectedChampion = (suggestion: Suggestion) => {
+        if (suggestion.championKey !== selectedChampionKey()) return false;
+        const role = selectedChampionRole();
+        return role === undefined || suggestion.role === role;
+    };
+
+    const [previewPick, setPreviewPick] = createSignal<PreviewPick>();
+    const [showPreview, setShowPreview] = createSignal(false);
+
+    function openPreview(championKey: string, role: Role | undefined) {
+        if (!selection.team) return;
+        setPreviewPick({
+            team: selection.team,
+            index: selection.index,
+            championKey,
+            role,
         });
+        setShowPreview(true);
     }
 
     const columns: () => ColumnDef<Suggestion>[] = () => [
@@ -314,11 +325,10 @@ export default function DraftTable() {
                     tabIndex={-1}
                     onClick={(e) => {
                         e.stopPropagation();
-                        setAnalysisPick({
-                            team: selection.team!,
-                            championKey: info.row.original.championKey,
-                            role: info.row.original.role,
-                        });
+                        openPreview(
+                            info.row.original.championKey,
+                            info.row.original.role,
+                        );
                     }}
                     class="py-2"
                 >
@@ -372,97 +382,25 @@ export default function DraftTable() {
         },
     });
 
-    function pick(row: Row<Suggestion>) {
+    function pick(row: Row<Suggestion>, e: MouseEvent | KeyboardEvent) {
         if (!selection.team) {
             createMustSelectToast();
             return;
         }
 
-        // pickChampion advances the selection, so read the slot beforehand
-        const { team, index } = selection;
+        pickOrPrePick(
+            selection.team,
+            selection.index,
+            row.original.championKey,
+            row.original.role,
+        );
 
-        const localCellId = champSelectSession.localPlayerCellId;
-        const isLocalPlayerSlot =
-            team === "ally" &&
-            champSelectSession.myTeam[index]?.cellId === localCellId;
-        const isLockedIn = champSelectSession.actions
-            .flat()
-            .some(
-                (a) =>
-                    a.actorCellId === localCellId &&
-                    a.type === "pick" &&
-                    a.completed,
-            );
-
-        if (isLocalPlayerSlot && !isLockedIn) {
-            // Only pre-pick in the game client, the slot stays empty until
-            // lock-in so it doesn't affect the other roles' analysis
-            selectChampionInClient(row.original.championKey);
-        } else {
-            pickChampion(
-                team,
-                index,
-                row.original.championKey,
-                row.original.role,
-            );
+        if (e instanceof KeyboardEvent) {
+            focusSearch();
         }
-
-        document.getElementById("draftTableSearch")?.focus();
     }
 
-    onMount(() => {
-        const draftTable = document.getElementById("draft-table");
-
-        const onKeyDown = (e: KeyboardEvent) => {
-            const activeElement = document.activeElement;
-            if (
-                activeElement?.tagName === "INPUT" &&
-                e.key !== "ArrowUp" &&
-                e.key !== "ArrowDown"
-            ) {
-                return;
-            }
-
-            const selectFirstRow = () => {
-                (
-                    draftTable!.querySelector("tbody tr") as HTMLTableRowElement
-                )?.focus();
-            };
-
-            if (e.key === "ArrowLeft" || e.key === "h") {
-                e.preventDefault();
-                select("ally");
-            } else if (e.key === "ArrowRight" || e.key === "l") {
-                e.preventDefault();
-                select("opponent");
-            } else if (e.key === "ArrowUp" || e.key === "k") {
-                e.preventDefault();
-                if (!activeElement || activeElement.tagName !== "TR") {
-                    selectFirstRow();
-                    return;
-                }
-                const previous =
-                    activeElement.previousSibling as HTMLTableRowElement;
-                if (previous.tagName === "TR") {
-                    previous.focus();
-                }
-            } else if (e.key === "ArrowDown" || e.key === "j") {
-                e.preventDefault();
-                if (!activeElement || activeElement.tagName !== "TR") {
-                    selectFirstRow();
-                    return;
-                }
-                const next = activeElement.nextSibling as HTMLTableRowElement;
-                if (next.tagName === "TR") {
-                    next.focus();
-                }
-            }
-        };
-        window.addEventListener("keydown", onKeyDown);
-        onCleanup(() => {
-            window.removeEventListener("keydown", onKeyDown);
-        });
-    });
+    createTableKeyboardNavigation("draft-table", (team) => select(team));
 
     return (
         <>
@@ -470,26 +408,38 @@ export default function DraftTable() {
                 table={table}
                 onClickRow={pick}
                 rowClassName={(r) =>
-                    bans.find((b) => b === r.original.championKey) ||
-                    !ownsChampion(r.original.championKey)
-                        ? "opacity-30"
-                        : ""
+                    isSelectedChampion(r.original)
+                        ? "bg-neutral-800! shadow-[inset_3px_0_0_var(--color-neutral-300)]"
+                        : allBans().has(r.original.championKey) ||
+                            !ownsChampion(r.original.championKey)
+                          ? "opacity-30"
+                          : ""
                 }
+                rowContextMenu={(row) => (
+                    <ChampionContextMenuContent
+                        championKey={row.original.championKey}
+                        role={row.original.role}
+                        onAnalysis={
+                            selection.team
+                                ? () =>
+                                      openPreview(
+                                          row.original.championKey,
+                                          row.original.role,
+                                      )
+                                : undefined
+                        }
+                    />
+                )}
                 id="draft-table"
             />
-            <Dialog
-                open={showAnalysisPick()}
-                onOpenChange={(open) => {
-                    if (!open) setAnalysisPick(undefined);
-                }}
-            >
-                <ChampionDraftAnalysisDialog
-                    championKey={analysisPick()!.championKey}
-                    team={analysisPick()!.team}
-                    openChampionDraftAnalysisModal={(team, championKey) =>
-                        setAnalysisPick({ team, championKey, role: undefined })
-                    }
-                />
+            <Dialog open={showPreview()} onOpenChange={setShowPreview}>
+                <Show when={previewPick()} keyed>
+                    {(pick) => (
+                        <PreviewDraftAnalysisProvider pick={pick}>
+                            <PreviewDialogContent pick={pick} />
+                        </PreviewDraftAnalysisProvider>
+                    )}
+                </Show>
             </Dialog>
         </>
     );

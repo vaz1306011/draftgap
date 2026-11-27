@@ -1,7 +1,11 @@
 import { Icon } from "solid-heroicons";
 import { ellipsisVertical } from "solid-heroicons/outline";
 import { presentationChartLine, trash, user } from "solid-heroicons/solid-mini";
-import { useDraft } from "../../contexts/DraftContext";
+import {
+    getPickedChampionKey,
+    getVisibleChampionKey,
+    useDraft,
+} from "../../contexts/DraftContext";
 import { Team } from "@draftgap/core/src/models/Team";
 import { ROLES, Role } from "@draftgap/core/src/models/Role";
 import { linkByStatsSite } from "../../utils/sites";
@@ -19,6 +23,7 @@ import {
     DropdownMenuShortcut,
     DropdownMenuTrigger,
 } from "../common/DropdownMenu";
+import { ContextMenuContent } from "../common/ContextMenu";
 import { cn } from "../../utils/style";
 import { buttonVariants } from "../common/Button";
 import { For, Show } from "solid-js";
@@ -26,6 +31,45 @@ import { RoleIcon } from "../icons/roles/RoleIcon";
 import { championName } from "../../utils/i18n";
 
 export function PickOptions(props: { team: Team; index: number }) {
+    return (
+        <div class="absolute right-0 top-0 transition-opacity [@media(hover:hover)]:opacity-40 group-hover/pick:opacity-100 has-focus-visible:opacity-100 has-data-expanded:opacity-100">
+            <DropdownMenu>
+                <DropdownMenuTrigger>
+                    <button
+                        class={cn(
+                            buttonVariants({ variant: "transparent" }),
+                            "px-1 py-2",
+                        )}
+                    >
+                        <Icon path={ellipsisVertical} class="h-7" />
+                    </button>
+                </DropdownMenuTrigger>
+                <PickOptionsContent team={props.team} index={props.index} />
+            </DropdownMenu>
+        </div>
+    );
+}
+
+export function PickOptionsContent(props: { team: Team; index: number }) {
+    return (
+        <DropdownMenuContent>
+            <PickOptionsItems team={props.team} index={props.index} />
+        </DropdownMenuContent>
+    );
+}
+
+export function PickOptionsContextMenuContent(props: {
+    team: Team;
+    index: number;
+}) {
+    return (
+        <ContextMenuContent>
+            <PickOptionsItems team={props.team} index={props.index} />
+        </ContextMenuContent>
+    );
+}
+
+function PickOptionsItems(props: { team: Team; index: number }) {
     const { config } = useUser();
     const { dataset } = useDataset();
     const { pickChampion, allyTeam, opponentTeam } = useDraft();
@@ -38,139 +82,116 @@ export function PickOptions(props: { team: Team; index: number }) {
         props.team === "ally" ? allyTeamComp() : opponentTeamComp();
 
     const champion = () => {
-        const pick = teamPicks()[props.index];
-
-        if (pick.championKey) {
-            return dataset()?.championData[pick.championKey!];
-        }
-        if (pick.hoverKey && analyzeHovers()) {
-            return dataset()?.championData[pick.hoverKey!];
-        }
-
-        return undefined;
+        const key = getVisibleChampionKey(
+            teamPicks()[props.index],
+            analyzeHovers(),
+        );
+        return key ? dataset()?.championData[key] : undefined;
     };
 
     return (
-        <div class="absolute right-0 top-0">
-            <DropdownMenu>
-                <DropdownMenuTrigger>
-                    <button
-                        class={cn(
-                            buttonVariants({ variant: "transparent" }),
-                            "px-1 py-2",
-                        )}
+        <>
+            <DropdownMenuLabel>
+                {champion()
+                    ? championName(champion()!, config)
+                    : `Pick ${props.index + 1}`}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
+                <DropdownMenuItem
+                    disabled={!champion()}
+                    onSelect={() =>
+                        pickChampion(
+                            props.team,
+                            props.index,
+                            undefined,
+                            undefined,
+                        )
+                    }
+                >
+                    <DropdownMenuIcon path={trash} />
+                    <span>Reset</span>
+                    <DropdownMenuShortcut>R</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!champion()} asChild>
+                    <a
+                        target="_blank"
+                        class="flex items-center w-full"
+                        href={
+                            champion()
+                                ? linkByStatsSite(
+                                      config.defaultStatsSite,
+                                      champion()!.id,
+                                      [...teamComp().entries()].find(
+                                          ([, value]) =>
+                                              value ===
+                                              teamPicks()[props.index]
+                                                  .championKey,
+                                      )![0] as Role,
+                                  )
+                                : "#"
+                        }
                     >
-                        <Icon path={ellipsisVertical} class="h-7" />
-                    </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent>
-                    <DropdownMenuLabel>
-                        {champion()
-                            ? championName(champion()!, config)
-                            : `Pick ${props.index + 1}`}
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuGroup>
-                        <DropdownMenuItem
-                            disabled={!champion()}
-                            onSelect={() =>
-                                pickChampion(
-                                    props.team,
-                                    props.index,
-                                    undefined,
-                                    undefined,
-                                )
-                            }
-                        >
-                            <DropdownMenuIcon path={trash} />
-                            <span>Reset</span>
-                            <DropdownMenuShortcut>R</DropdownMenuShortcut>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem disabled={!champion()} asChild>
-                            <a
-                                target="_blank"
-                                class="flex items-center w-full"
-                                href={
-                                    champion()
-                                        ? linkByStatsSite(
-                                              config.defaultStatsSite,
-                                              champion()!.id,
-                                              [...teamComp().entries()].find(
-                                                  ([, value]) =>
-                                                      value ===
-                                                      teamPicks()[props.index]
-                                                          .championKey,
-                                              )![0] as Role,
-                                          )
-                                        : "#"
+                        <DropdownMenuIcon path={user} />
+                        <span>{config.defaultStatsSite}</span>
+                        <DropdownMenuShortcut>B</DropdownMenuShortcut>
+                    </a>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                    disabled={!champion()}
+                    onSelect={() =>
+                        setAnalysisPick({
+                            team: props.team,
+                            championKey: teamPicks()[props.index].championKey!,
+                        })
+                    }
+                >
+                    <DropdownMenuIcon path={presentationChartLine} />
+                    <span>Analysis</span>
+                    <DropdownMenuShortcut>F</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <div class="flex px-1.5 justify-around">
+                    <For each={ROLES}>
+                        {(role) => (
+                            <button
+                                class={cn(
+                                    buttonVariants({
+                                        variant: "transparent",
+                                    }),
+                                    "px-1.5 relative",
+                                )}
+                                onClick={() =>
+                                    pickChampion(
+                                        props.team,
+                                        props.index,
+                                        getPickedChampionKey(
+                                            teamPicks()[props.index],
+                                        ),
+                                        role,
+                                    )
                                 }
                             >
-                                <DropdownMenuIcon path={user} />
-                                <span>{config.defaultStatsSite}</span>
-                                <DropdownMenuShortcut>B</DropdownMenuShortcut>
-                            </a>
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                            disabled={!champion()}
-                            onSelect={() =>
-                                setAnalysisPick({
-                                    team: props.team,
-                                    championKey:
-                                        teamPicks()[props.index].championKey!,
-                                })
-                            }
-                        >
-                            <DropdownMenuIcon path={presentationChartLine} />
-                            <span>Analysis</span>
-                            <DropdownMenuShortcut>F</DropdownMenuShortcut>
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <div class="flex px-1.5 justify-around">
-                            <For each={ROLES}>
-                                {(role) => (
-                                    <button
-                                        class={cn(
-                                            buttonVariants({
-                                                variant: "transparent",
-                                            }),
-                                            "px-1.5 relative",
-                                        )}
-                                        onClick={() =>
-                                            pickChampion(
-                                                props.team,
-                                                props.index,
-                                                teamPicks()[props.index]
-                                                    .championKey,
-                                                role,
-                                            )
-                                        }
-                                    >
-                                        <RoleIcon
-                                            role={role}
-                                            class={cn(
-                                                "h-6 w-6 text-neutral-500",
-                                                {
-                                                    "text-white":
-                                                        teamPicks()[props.index]
-                                                            .role === role,
-                                                },
-                                            )}
-                                        />
-                                        <Show
-                                            when={
-                                                teamPicks()[props.index]
-                                                    .role === role
-                                            }
-                                        >
-                                            <div class="h-[3px] w-full bg-neutral-50 -bottom-1.5 absolute left-0 rounded-t-full" />
-                                        </Show>
-                                    </button>
-                                )}
-                            </For>
-                        </div>
-                    </DropdownMenuGroup>
-                </DropdownMenuContent>
-            </DropdownMenu>
-        </div>
+                                <RoleIcon
+                                    role={role}
+                                    class={cn("h-6 w-6 text-neutral-500", {
+                                        "text-white":
+                                            teamPicks()[props.index].role ===
+                                            role,
+                                    })}
+                                />
+                                <Show
+                                    when={
+                                        teamPicks()[props.index].role === role
+                                    }
+                                >
+                                    <div class="h-[3px] w-full bg-neutral-50 -bottom-1.5 absolute left-0 rounded-t-full" />
+                                </Show>
+                            </button>
+                        )}
+                    </For>
+                </div>
+            </DropdownMenuGroup>
+        </>
     );
 }

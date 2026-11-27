@@ -8,13 +8,13 @@ import { useDraftFilters } from "../../contexts/DraftFiltersContext";
 import { cn } from "../../utils/style";
 
 export function RoleFilter(props: ComponentProps<"span">) {
-    const { selection, draftFinished, selectedAssignedRole } = useDraft();
+    const { selection, selectedAssignedRole } = useDraft();
     const { roleFilter, setRoleFilter } = useDraftFilters();
-    const { getFilledRoles } = useDraftAnalysis();
+    const { getFilledRoles, roleFilterTeam } = useDraftAnalysis();
     const { suggestedRoles } = useDraftSuggestions();
 
     const filledRoles = () =>
-        (selection.team && getFilledRoles(selection.team)) ?? new Set();
+        (roleFilterTeam() && getFilledRoles(roleFilterTeam()!)) ?? new Set();
 
     const isUnavailable = (role: Role) =>
         (filledRoles().has(role) && role !== selectedAssignedRole()) ||
@@ -42,7 +42,7 @@ export function RoleFilter(props: ComponentProps<"span">) {
                                 ? setRoleFilter(undefined)
                                 : setRoleFilter(role)
                         }
-                        disabled={draftFinished()}
+                        disabled={!selection.team}
                     >
                         <RoleIcon role={role} class="h-7" />
                     </button>
